@@ -1,0 +1,111 @@
+You're right — the drills are listed in the cheatsheet but I didn't actually give you the exercise prompts with proper detail. Here they are:
+
+---
+
+## 🔧 Drill 1 — Connect & Ping
+
+Set up a fresh Go project and write a `main.go` that:
+- Opens a connection pool to PostgreSQL using the `pgx` driver
+- Sets all 4 pool config values (`MaxOpenConns`, `MaxIdleConns`, `ConnMaxLifetime`, `ConnMaxIdleTime`)
+- Calls `db.Ping()` and handles the error
+- Prints `"connected successfully"` on success
+- Prints pool stats: how many open connections exist after ping
+- Defers `db.Close()`
+
+**Intentional break:** After it works, change the password in the DSN to something wrong. Observe that `sql.Open` does NOT error — only `Ping` does. Then fix it.
+
+---
+
+## 🔧 Drill 2 — Raw SELECT All Books
+
+Run the migration SQL from the code file to create the `books` table and seed 3 rows. Then write a `GetAll` function that:
+- Uses `db.Query` (not `QueryRow`)
+- Iterates with `rows.Next()`
+- Scans each row into a `Book` struct
+- Checks `rows.Err()` after the loop
+- `defer rows.Close()` — no exceptions
+- Prints each book to the terminal
+
+**Intentional break:** Remove the `defer rows.Close()` and call `GetAll` in a loop 30 times. Watch `db.Stats().OpenConnections` climb and never come back down.
+
+---
+
+## 🔧 Drill 3 — GetByID + ErrNoRows
+
+Write a `GetByID(id int)` function that:
+- Uses `db.QueryRow` + `.Scan()`
+- Returns `(*Book, error)`
+- When called with a valid ID → prints the book
+- When called with ID `9999` → catches `sql.ErrNoRows` with `errors.Is` and prints `"book not found"` — NOT a crash
+- When you mix up the scan argument order (e.g. scan `title` into `id`) → observe what garbage comes out, then fix it
+
+---
+
+## 🔧 Drill 4 — Create with RETURNING
+
+Write a `Create(title, author string, year int) (int, error)` function that:
+- Inserts a new book using `$1, $2, $3` placeholders
+- Uses `RETURNING id` and `QueryRow` to get the new ID back
+- Prints the new ID after insertion
+- Then immediately calls `GetByID` with that ID to prove the row exists
+
+**Test SQL injection manually:** Try passing `title = "'; DROP TABLE books; --"` as input to your `Create` function. Confirm the book is inserted literally with that weird title, the table is not dropped, and the database is fine.
+
+---
+
+## 🔧 Drill 5 — Delete with RowsAffected
+
+Write a `Delete(id int) error` function that:
+- Uses `db.Exec`
+- Checks `RowsAffected()` — if 0, return `sql.ErrNoRows`
+- Test 1: delete a book that exists → success
+- Test 2: delete the same ID again → `ErrNoRows`
+- Test 3: try to delete ID `9999` → `ErrNoRows`
+
+---
+
+## 🔧 Drill 6 — Transaction: Transfer
+
+Add a `book_categories` table first:
+
+```sql
+CREATE TABLE categories (
+    id   SERIAL PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+CREATE TABLE book_categories (
+    book_id     INT REFERENCES books(id),
+    category_id INT REFERENCES categories(id),
+    PRIMARY KEY (book_id, category_id)
+);
+
+INSERT INTO categories (name) VALUES ('fiction'), ('non-fiction');
+INSERT INTO book_categories (book_id, category_id) VALUES (1, 1);
+```
+
+Then write `Transfer(bookID, fromCategoryID, toCategoryID int) error` that:
+- Starts a transaction with `db.Begin()`
+- `defer tx.Rollback()` immediately
+- Step 1: DELETE from `book_categories` for `fromCategoryID`
+- Step 2: INSERT into `book_categories` for `toCategoryID`
+- Commits only if both succeed
+
+**Intentional break:** After step 1 succeeds, force step 2 to fail (use a non-existent `toCategoryID` that violates the foreign key). Confirm that step 1 was rolled back — the book is still in the original category.
+
+---
+
+## 🏗️ Mini Project — Replace the In-Memory Slice
+
+Take your book API from Module 4 (the one using `[]Book` in memory). Replace it entirely:
+- Run the migration to create the real `books` table
+- Wire up `BookRepository` with the real `*sql.DB`
+- Every handler (`GET /books`, `GET /books/{id}`, `POST /books`, `DELETE /books/{id}`) now hits PostgreSQL
+- `ErrNoRows` → 404, real errors → 500
+- Test every endpoint with curl — data must persist between server restarts
+
+That's the sign it's working: kill the server, restart it, hit `GET /books` — your data is still there.
+
+---
+
+Start with Drill 1. Paste your code here when done and I'll review it before you move to Drill 2.
