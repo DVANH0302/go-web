@@ -21,7 +21,8 @@ type bookRepositoryImpl struct {
 }
 
 func main() {
-	// router
+	dsn := 
+
 
 	app := &application{
 		infoLog:  log.New(os.Stdout, "INFO\t", log.Ltime|log.Ldate),
