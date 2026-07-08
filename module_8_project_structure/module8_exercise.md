@@ -1,46 +1,85 @@
-# Module 8 — Exercises
+One exercise, teaches the whole thing.
 
-Each drill refactors one part of YOUR book API (from Modules 5–7). Do them in order — each builds on the last. No copy-pasting from the code file; type it and understand it.
+---
 
-## Drill 1 — Project layout
-Create the folder structure:
+**Build a Notes API from scratch with proper structure**
+
+Not refactoring — start fresh. Create a new folder, run `go mod init`, build this from zero.
+
+**What it does:**
+- `POST /notes` — create a note (just a string of text)
+- `GET /notes/{id}` — get a note by ID
+- `DELETE /notes/{id}` — delete a note
+
+**The rules (this is what you're actually learning):**
+
+Store notes in memory — a `map[int]string`, no database. That's intentional — it removes SQL complexity so you focus purely on structure.
+
+Your project must look like this when done:
+
 ```
-cmd/api/
-internal/books/
-internal/database/
-internal/config/
+notes-api/
+├── cmd/
+│   └── api/
+│       └── main.go
+├── internal/
+│   └── notes/
+│       ├── handler.go
+│       ├── service.go
+│       └── store.go
+├── .env
+├── .gitignore
+└── go.mod
 ```
-Move your current `main.go` into `cmd/api/main.go`. Fix the run command (`go run ./cmd/api`) and confirm the server still starts.
 
-✅ Check: the project root contains no `.go` files.
+**What goes where — strictly enforced:**
 
-## Drill 2 — Repository
-Move ALL database logic into `internal/books/repository.go`: `GetAll`, `GetByID`, `Create`, `Update`, `Delete`.
+`store.go` — owns the map and a mutex. Has `Save`, `Get`, `Delete` methods. Nothing else touches the map.
 
-✅ Check: grep your handlers for `SELECT`, `INSERT`, `Scan` — zero hits.
+`service.go` — owns one rule: a note cannot be empty. Has `Create`, `Get`, `Delete` methods. Calls the store. Never touches `http` anything.
 
-## Drill 3 — Service
-Move business logic into `internal/books/service.go`: validation rules, any ID/ownership logic. Handlers call the service; the service calls the repository.
+`handler.go` — owns JSON encoding, status codes, reading the request body. Calls the service. Never touches the map directly.
 
-✅ Check: your handler for `POST /books` contains no validation `if` statements.
+`main.go` — creates the store, creates the service with the store, creates the handler with the service, registers routes, reads `PORT` from `.env` via godotenv, starts the server. Nothing else.
 
-## Drill 4 — Config struct
-Create `internal/config/config.go` with a `Config` struct holding `Port` and `DSN`. Read both from environment variables with sensible defaults. Delete every hardcoded port/DSN string from the rest of the codebase.
+**When you're done, run these checks:**
 
-✅ Check: `PORT=9999 go run ./cmd/api` starts the server on :9999; plain `go run ./cmd/api` starts it on the default.
+```bash
+# 1. Create a note
+curl -X POST localhost:4000/notes \
+  -H "Content-Type: application/json" \
+  -d '{"text":"buy milk"}' 
+# expect: 201, {"id":1}
 
-## Drill 5 — .env + godotenv
-Add a `.env` file with `PORT` and `DB_DSN`. Load it with `godotenv.Load()` at the top of `main`. Add `.env` to `.gitignore`.
+# 2. Get it back
+curl localhost:4000/notes/1
+# expect: 200, {"id":1,"text":"buy milk"}
 
-✅ Check: change `PORT` in `.env`, restart, server picks it up — no `export` needed.
+# 3. Delete it
+curl -X DELETE localhost:4000/notes/1
+# expect: 204
 
-## Mini project — full restructure
-Finish the job: `main.go` does nothing but load config → open DB → wire repo/service/handler → register routes → listen. All auth code from Module 7 moves into `internal/auth/` following the same three-layer split.
+# 4. Get deleted note
+curl localhost:4000/notes/1
+# expect: 404
 
-✅ Check (all must pass):
-1. `go run ./cmd/api` works and every endpoint from Module 7 still behaves the same (test with curl).
-2. `main.go` is under ~60 lines.
-3. No file mixes layers: nothing imports both `net/http` and `database/sql`.
+# 5. Empty note
+curl -X POST localhost:4000/notes \
+  -H "Content-Type: application/json" \
+  -d '{"text":""}'
+# expect: 400
 
-## Stretch question (answer in one paragraph, no code)
-A teammate creates `pkg/books` instead of `internal/books` "so it's reusable later". What can now go wrong that `internal/` would have prevented?
+# 6. Layer check — service must not know about HTTP
+grep -r "net/http" internal/notes/service.go
+# expect: no output
+
+# 7. Map must live in one place only
+grep -r "map\[int\]" internal/
+# expect: only store.go
+```
+
+All 7 checks pass = you understand the structure. Any one fails = something is in the wrong layer.
+
+Start with `store.go` first, then `service.go`, then `handler.go`, then `main.go`. That order matters — each layer only knows what's below it.
+
+Come back when you're done or when you're stuck on a specific part.
